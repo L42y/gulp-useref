@@ -32,6 +32,8 @@ module.exports.assets = function (options) {
         glob = require('glob'),
         stripBom = require('strip-bom'),
         isAbsoluteUrl = require('is-absolute-url'),
+        Concat = require('concat-with-sourcemaps'),
+        applySourceMap = require('vinyl-sourcemaps-apply'),
         opts = options || {},
         types = opts.types || ['css', 'js'],
         restoreStream = through.obj();
@@ -44,7 +46,7 @@ module.exports.assets = function (options) {
             var files = assets[type];
             if (files) {
                 Object.keys(files).forEach(function (name) {
-                    var buffer = [];
+                    var concat = new Concat(true, name, gutil.linefeed);
                     var filepaths = files[name].assets;
 
                     if (filepaths.length) {
@@ -77,23 +79,33 @@ module.exports.assets = function (options) {
                                 if (!filenames.length) {
                                     filenames.push(pattern);
                                 }
+
                                 try {
-                                    buffer.push(stripBom(fs.readFileSync(filenames[0])));
+                                    concat.add(filenames[0], stripBom(fs.readFileSync(filenames[0], {encoding: 'utf8'})));
                                 } catch (err) {
                                     this.emit('error', new gutil.PluginError('gulp-useref', err));
                                 }
                             }
                         }, this);
 
-                        if (buffer.length) {
-                            joinedFile = new gutil.File({
+                        joinedFile = new gutil.File({
+                            cwd: file.cwd,
+                            base: file.base,
+                            path: path.join(file.base, name),
+                            contents: new Buffer(concat.content)
+                        });
+
+                        applySourceMap(joinedFile, concat.sourceMap);
+                        this.push(joinedFile);
+
+                        if (opts.sourcemap) {
+                            var sourceMapFile = new gutil.File({
                                 cwd: file.cwd,
                                 base: file.base,
-                                path: path.join(file.base, name),
-                                contents: new Buffer(buffer.join(gutil.linefeed))
+                                path: path.join(file.base, name) + '.map',
+                                contents: new Buffer(JSON.stringify(concat.sourceMap))
                             });
-
-                            this.push(joinedFile);
+                            this.push(sourceMapFile);
                         }
                     }
 
